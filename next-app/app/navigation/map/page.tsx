@@ -1,22 +1,10 @@
-'use client';
+import { Suspense } from "react";
+import MapClient from "./MapClient";
 
-import { useSearchParams } from 'next/navigation';
-import NavigationMap from '../../components/Maps/NavigationMap';
-
-export default function NavigationMapPage() {
-    const params = useSearchParams();
-
-    const lat = Number(params.get('lat'));
-    const lng = Number(params.get('lng'));
-    const name = params.get('name') ?? '目的地';
-
+export default function Map() {
     return (
-        <NavigationMap
-            destination={{
-                lat,
-                lng,
-                name,
-            }}
-        />
-    );
+        <Suspense fallback={<div>Loading map...</div>}>
+            <MapClient />
+        </Suspense>
+    )
 }

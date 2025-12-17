@@ -1,7 +1,5 @@
 services:
   app:
-    build: ./
-    volumes:
-      - .:/workdir
+    build: .
     ports:
-      - 3021:3000
+      - "3021:3000"
