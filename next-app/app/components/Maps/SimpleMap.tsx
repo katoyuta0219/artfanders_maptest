@@ -5,54 +5,57 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // ----------------------------------------------
-// 神戸の判定に使うコア境界
+// 神戸の判定に使うコア境界（意味を持つ範囲）
 // ----------------------------------------------
 const KOBE_CORE_BOUNDS: [[number, number], [number, number]] = [
     [135.12, 34.62],
     [135.35, 34.76],
 ];
 
-// 表示用のソフト境界
+// 表示用のソフト境界（見た目用）
+// ----------------------------------------------
 const KOBE_SOFT_BOUNDS: [[number, number], [number, number]] = [
     [134.95, 34.55],
     [135.55, 34.85],
 ];
 
-export default function SimpleMap({
-    lat,
-    lng,
-    originLat,
-    originLng
-}: {
+type Props = {
     lat: number;
     lng: number;
     originLat: number | null;
     originLng: number | null;
-}) {
-    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
+};
 
-    const mapContainer = useRef<HTMLDivElement | null>(null);
+export default function SimpleMap({
+    lat,
+    lng,
+    originLat,
+    originLng,
+}: Props) {
+    mapboxgl.accessToken =
+        process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ?? '';
+
+    const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const [isOutOfKobe, setIsOutOfKobe] = useState(false);
 
     useEffect(() => {
-        if (!mapContainer.current) return;
+        if (!mapContainerRef.current) return;
 
         const map = new mapboxgl.Map({
-            container: mapContainer.current,
+            container: mapContainerRef.current,
+            style: 'mapbox://styles/mapbox/dark-v11',
             bounds: KOBE_SOFT_BOUNDS,
             fitBoundsOptions: { padding: 80 },
             maxBounds: KOBE_SOFT_BOUNDS,
             zoom: 13,
             pitch: 60,
             bearing: -20,
-            style: 'mapbox://styles/mapbox/dark-v11',
             antialias: true,
         });
 
         map.on('load', async () => {
-
             /* ====================================================
-               ① 神戸市の境界を読み込み（外側を暗転マスク）
+               ① 神戸市境界読み込み ＋ 市外マスク
                ==================================================== */
 
             const res = await fetch('/kobe_city_boundary.geojson');
@@ -68,11 +71,11 @@ export default function SimpleMap({
                     ? kobeGeojson.features[0].geometry.coordinates[0][0]
                     : kobeGeojson.features[0].geometry.coordinates[0];
 
-            //外側マスク（市外を暗くする）
             map.addSource('kobe-mask', {
                 type: 'geojson',
                 data: {
                     type: 'Feature',
+                    properties: {}, // ★ 必須
                     geometry: {
                         type: 'Polygon',
                         coordinates: [
@@ -83,7 +86,7 @@ export default function SimpleMap({
                                 [134.0, 35.2],
                                 [134.0, 34.2],
                             ],
-                            kobeCoordinates
+                            kobeCoordinates,
                         ],
                     },
                 },
@@ -99,7 +102,6 @@ export default function SimpleMap({
                 },
             });
 
-            // 境界線（ネオン風）
             map.addLayer({
                 id: 'kobe-boundary-line',
                 type: 'line',
@@ -112,9 +114,8 @@ export default function SimpleMap({
                 },
             });
 
-
             /* ====================================================
-               ② 地形（Terrain）＋ 空（Sky）＋ 光源
+               ② Terrain / Sky / Light
                ==================================================== */
 
             map.addSource('mapbox-dem', {
@@ -124,34 +125,38 @@ export default function SimpleMap({
                 maxzoom: 14,
             });
 
-            map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.4 });
+            map.setTerrain({
+                source: 'mapbox-dem',
+                exaggeration: 1.4,
+            });
 
             map.addLayer({
                 id: 'sky',
                 type: 'sky',
                 paint: {
                     'sky-type': 'atmosphere',
-                    'sky-atmosphere-sun': [0.0, 90.0],
-                    'sky-atmosphere-sun-intensity': 20
-                }
+                    'sky-atmosphere-sun': [0, 90],
+                    'sky-atmosphere-sun-intensity': 20,
+                },
             });
 
-            // 光源 → 建物の影に影響
             map.setLight({
                 anchor: 'map',
-                position: [1.5, 180, 80], // 太陽方向
+                position: [1.5, 180, 80],
                 intensity: 0.9,
-                color: '#ffffff'
+                color: '#ffffff',
             });
-
 
             /* ====================================================
                ③ 3D建物（影付き）
                ==================================================== */
 
-            const layers = map.getStyle().layers;
+            const layers = map.getStyle().layers ?? [];
             const labelLayerId = layers.find(
-                (l) => l.type === 'symbol' && l.layout['text-field']
+                (l) =>
+                    l.type === 'symbol' &&
+                    l.layout &&
+                    'text-field' in l.layout
             )?.id;
 
             map.addLayer(
@@ -164,46 +169,39 @@ export default function SimpleMap({
                     minzoom: 14,
                     paint: {
                         'fill-extrusion-color': '#aaaaaa',
-
-                        // 高さデータでリアル3D
                         'fill-extrusion-height': [
                             'interpolate',
                             ['linear'],
                             ['zoom'],
-                            14, 0,
-                            16, ['get', 'height']
+                            14,
+                            0,
+                            16,
+                            ['get', 'height'],
                         ],
                         'fill-extrusion-base': ['get', 'min_height'],
-
-                        // 影の演出（重要）
-                        'fill-extrusion-ambient-occlusion-intensity': 0.3,
                         'fill-extrusion-opacity': 0.9,
+                        'fill-extrusion-ambient-occlusion-intensity': 0.3,
                     },
                 },
                 labelLayerId
             );
 
-
             /* ====================================================
-               ④ 神戸市内判定（ルートが意味を持つ範囲）
+               ④ 神戸市内判定
                ==================================================== */
 
-            const isInsideKobe = (lat: number, lng: number) => {
-                return (
-                    lat >= KOBE_CORE_BOUNDS[0][1] &&
-                    lat <= KOBE_CORE_BOUNDS[1][1] &&
-                    lng >= KOBE_CORE_BOUNDS[0][0] &&
-                    lng <= KOBE_CORE_BOUNDS[1][0]
-                );
-            };
+            const isInsideKobe = (lat: number, lng: number) =>
+                lat >= KOBE_CORE_BOUNDS[0][1] &&
+                lat <= KOBE_CORE_BOUNDS[1][1] &&
+                lng >= KOBE_CORE_BOUNDS[0][0] &&
+                lng <= KOBE_CORE_BOUNDS[1][0];
 
             if (originLat && originLng) {
                 setIsOutOfKobe(!isInsideKobe(originLat, originLng));
             }
 
-
             /* ====================================================
-               ⑤ ルート表示（最短ルート）
+               ⑤ ルート表示（徒歩）
                ==================================================== */
 
             if (originLat && originLng) {
@@ -212,17 +210,17 @@ export default function SimpleMap({
                     `${originLng},${originLat};${lng},${lat}` +
                     `?geometries=geojson&overview=full&steps=true&access_token=${mapboxgl.accessToken}`;
 
-                const res = await fetch(url);
-                const data = await res.json();
-                const route = data.routes[0].geometry;
+                const routeRes = await fetch(url);
+                const routeJson = await routeRes.json();
+                const routeGeometry = routeJson.routes[0].geometry;
 
                 map.addSource('route', {
                     type: 'geojson',
                     data: {
                         type: 'Feature',
-                        properties: {},
-                        geometry: route,
-                    }
+                        properties: {}, // ★ 必須
+                        geometry: routeGeometry,
+                    },
                 });
 
                 map.addLayer({
@@ -233,7 +231,7 @@ export default function SimpleMap({
                         'line-color': '#00e0ff',
                         'line-width': 6,
                         'line-opacity': 0.9,
-                    }
+                    },
                 });
 
                 new mapboxgl.Marker({ color: '#ff3b30' })
@@ -246,13 +244,14 @@ export default function SimpleMap({
             }
         });
 
-        return () => map.remove();
+        return () => {
+            map.remove();
+        };
     }, [lat, lng, originLat, originLng]);
 
-
-    /* ============================================================
-       UI：神戸市外に出たら警告バー
-       ============================================================ */
+    /* ====================================================
+       UI：神戸市外警告バー
+       ==================================================== */
     return (
         <>
             {isOutOfKobe && (
@@ -267,14 +266,17 @@ export default function SimpleMap({
                         color: '#fff',
                         textAlign: 'center',
                         fontWeight: 'bold',
-                        zIndex: 1000
+                        zIndex: 1000,
                     }}
                 >
-                    ⚠️ 現在地が神戸市外に出ました。このアプリの案内は神戸市内専用です。
+                    ⚠️ 現在地が神戸市外に出ました。このアプリは神戸市内専用です。
                 </div>
             )}
 
-            <div ref={mapContainer} style={{ width: '100%', height: '100vh' }} />
+            <div
+                ref={mapContainerRef}
+                style={{ width: '100%', height: '100vh' }}
+            />
         </>
     );
 }
