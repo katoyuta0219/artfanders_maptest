@@ -6,6 +6,9 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 
+// =============================
+// 型定義
+// =============================
 type Props = {
     destination: {
         lat: number;
@@ -14,6 +17,9 @@ type Props = {
     };
 };
 
+// =============================
+// NavigationMap（完全ナビ版）
+// =============================
 export default function NavigationMap({ destination }: Props) {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -23,21 +29,23 @@ export default function NavigationMap({ destination }: Props) {
     useEffect(() => {
         if (!mapContainerRef.current) return;
 
+        // -----------------------------
+        // Map 初期化（★ antialias 追加）
+        // -----------------------------
         const map = new mapboxgl.Map({
             container: mapContainerRef.current,
             style: 'mapbox://styles/mapbox/navigation-day-v1',
             center: [destination.lng, destination.lat],
             zoom: 15,
             pitch: 60,
-            bearing: 0,
-            antialias: true, // ★3D必須
+            antialias: true, // ★ 3D表示に必須
         });
 
         mapRef.current = map;
 
-        // =============================
-        // 3D 建物
-        // =============================
+        // -----------------------------
+        // ★ 建物を3D表示
+        // -----------------------------
         map.on('load', () => {
             map.addLayer({
                 id: '3d-buildings',
@@ -55,7 +63,9 @@ export default function NavigationMap({ destination }: Props) {
             });
         });
 
+        // -----------------------------
         // 目的地マーカー
+        // -----------------------------
         new mapboxgl.Marker({ color: 'red' })
             .setLngLat([destination.lng, destination.lat])
             .setPopup(new mapboxgl.Popup().setText(destination.name))
@@ -69,6 +79,9 @@ export default function NavigationMap({ destination }: Props) {
                     const lat = pos.coords.latitude;
                     const lng = pos.coords.longitude;
 
+                    // =============================
+                    // 進行方向計算
+                    // =============================
                     let bearing = pos.coords.heading ?? 0;
                     if (bearing === 0 && lastPositionRef.current) {
                         const dx = lng - lastPositionRef.current.lng;
@@ -77,7 +90,9 @@ export default function NavigationMap({ destination }: Props) {
                     }
                     lastPositionRef.current = { lat, lng };
 
-                    // 矢印マーカー
+                    // =============================
+                    // 矢印マーカー（現在地）
+                    // =============================
                     if (!userMarkerRef.current) {
                         const el = document.createElement('div');
                         el.style.width = '24px';
@@ -90,11 +105,14 @@ export default function NavigationMap({ destination }: Props) {
                             .setLngLat([lng, lat])
                             .addTo(map);
                     } else {
-                        userMarkerRef.current.getElement().style.transform = `rotate(${bearing}deg)`;
+                        const el = userMarkerRef.current.getElement();
+                        el.style.transform = `rotate(${bearing}deg)`;
                         userMarkerRef.current.setLngLat([lng, lat]);
                     }
 
+                    // =============================
                     // カメラ追従
+                    // =============================
                     map.easeTo({
                         center: [lng, lat],
                         bearing,
@@ -103,26 +121,34 @@ export default function NavigationMap({ destination }: Props) {
                         duration: 500,
                     });
 
-                    // ルート（初回のみ）
+                    // =============================
+                    // ルート取得（初回のみ）
+                    // =============================
                     if (!map.getSource('route')) {
                         const res = await fetch(
                             `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${destination.lng},${destination.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`
                         );
                         const data = await res.json();
 
+                        const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
+                            type: 'Feature',
+                            geometry: data.routes[0].geometry,
+                            properties: {},
+                        };
+
                         map.addSource('route', {
                             type: 'geojson',
-                            data: {
-                                type: 'Feature',
-                                geometry: data.routes[0].geometry,
-                                properties: {},
-                            },
+                            data: routeGeoJson,
                         });
 
                         map.addLayer({
                             id: 'route-layer',
                             type: 'line',
                             source: 'route',
+                            layout: {
+                                'line-join': 'round',
+                                'line-cap': 'round',
+                            },
                             paint: {
                                 'line-color': '#2563eb',
                                 'line-width': 6,
@@ -130,13 +156,15 @@ export default function NavigationMap({ destination }: Props) {
                         });
                     }
                 },
-                console.error,
-                { enableHighAccuracy: true }
+                (err) => console.error('位置情報エラー', err),
+                { enableHighAccuracy: true, maximumAge: 1000 }
             );
         }
 
         return () => {
-            if (watchId) navigator.geolocation.clearWatch(watchId);
+            if (watchId && navigator.geolocation) {
+                navigator.geolocation.clearWatch(watchId);
+            }
             map.remove();
         };
     }, [destination]);
