@@ -201,7 +201,7 @@ export default function NavigationMap({ destination }: Props) {
                 type: 'fill-extrusion',
                 minzoom: 15,
                 paint: {
-                    'fill-extrusion-color': '#d1d5db',
+                    'fill-extrusion-color': '#00ffff',
                     'fill-extrusion-height': ['get', 'height'],
                     'fill-extrusion-base': ['get', 'min_height'],
                     'fill-extrusion-opacity': 0.6,
