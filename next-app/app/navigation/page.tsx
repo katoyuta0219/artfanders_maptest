@@ -13,6 +13,11 @@ const places = [
         lat: 35.1850,
         lng: 136.8990,
     },
+    {
+        name: '青森駅',
+        lat: 40.8289,
+        lng: 140.7348,
+    }
 ];
 
 export default function NavigationPage() {
