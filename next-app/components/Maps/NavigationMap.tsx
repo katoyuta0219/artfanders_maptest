@@ -6,9 +6,6 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 
-// =============================
-// 型定義
-// =============================
 type Props = {
     destination: {
         lat: number;
@@ -17,9 +14,6 @@ type Props = {
     };
 };
 
-// =============================
-// NavigationMap（完全ナビ版）
-// =============================
 export default function NavigationMap({ destination }: Props) {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -29,18 +23,37 @@ export default function NavigationMap({ destination }: Props) {
     useEffect(() => {
         if (!mapContainerRef.current) return;
 
-        // -----------------------------
-        // Map 初期化
-        // -----------------------------
         const map = new mapboxgl.Map({
             container: mapContainerRef.current,
             style: 'mapbox://styles/mapbox/navigation-day-v1',
             center: [destination.lng, destination.lat],
             zoom: 15,
             pitch: 60,
+            bearing: 0,
+            antialias: true, // ★3D必須
         });
 
         mapRef.current = map;
+
+        // =============================
+        // 3D 建物
+        // =============================
+        map.on('load', () => {
+            map.addLayer({
+                id: '3d-buildings',
+                source: 'composite',
+                'source-layer': 'building',
+                filter: ['==', 'extrude', 'true'],
+                type: 'fill-extrusion',
+                minzoom: 15,
+                paint: {
+                    'fill-extrusion-color': '#d1d5db',
+                    'fill-extrusion-height': ['get', 'height'],
+                    'fill-extrusion-base': ['get', 'min_height'],
+                    'fill-extrusion-opacity': 0.6,
+                },
+            });
+        });
 
         // 目的地マーカー
         new mapboxgl.Marker({ color: 'red' })
@@ -56,9 +69,6 @@ export default function NavigationMap({ destination }: Props) {
                     const lat = pos.coords.latitude;
                     const lng = pos.coords.longitude;
 
-                    // =============================
-                    // 進行方向計算（headingが無い場合）
-                    // =============================
                     let bearing = pos.coords.heading ?? 0;
                     if (bearing === 0 && lastPositionRef.current) {
                         const dx = lng - lastPositionRef.current.lng;
@@ -67,9 +77,7 @@ export default function NavigationMap({ destination }: Props) {
                     }
                     lastPositionRef.current = { lat, lng };
 
-                    // =============================
-                    // 矢印マーカー（現在地）
-                    // =============================
+                    // 矢印マーカー
                     if (!userMarkerRef.current) {
                         const el = document.createElement('div');
                         el.style.width = '24px';
@@ -82,14 +90,11 @@ export default function NavigationMap({ destination }: Props) {
                             .setLngLat([lng, lat])
                             .addTo(map);
                     } else {
-                        const el = userMarkerRef.current.getElement();
-                        el.style.transform = `rotate(${bearing}deg)`;
+                        userMarkerRef.current.getElement().style.transform = `rotate(${bearing}deg)`;
                         userMarkerRef.current.setLngLat([lng, lat]);
                     }
 
-                    // =============================
-                    // カメラ追従（GoogleMap風）
-                    // =============================
+                    // カメラ追従
                     map.easeTo({
                         center: [lng, lat],
                         bearing,
@@ -98,34 +103,26 @@ export default function NavigationMap({ destination }: Props) {
                         duration: 500,
                     });
 
-                    // =============================
-                    // ルート取得（初回のみ）
-                    // =============================
+                    // ルート（初回のみ）
                     if (!map.getSource('route')) {
                         const res = await fetch(
                             `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${destination.lng},${destination.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`
                         );
                         const data = await res.json();
 
-                        const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
-                            type: 'Feature',
-                            geometry: data.routes[0].geometry,
-                            properties: {},
-                        };
-
                         map.addSource('route', {
                             type: 'geojson',
-                            data: routeGeoJson,
+                            data: {
+                                type: 'Feature',
+                                geometry: data.routes[0].geometry,
+                                properties: {},
+                            },
                         });
 
                         map.addLayer({
                             id: 'route-layer',
                             type: 'line',
                             source: 'route',
-                            layout: {
-                                'line-join': 'round',
-                                'line-cap': 'round',
-                            },
                             paint: {
                                 'line-color': '#2563eb',
                                 'line-width': 6,
@@ -133,15 +130,13 @@ export default function NavigationMap({ destination }: Props) {
                         });
                     }
                 },
-                (err) => console.error('位置情報エラー', err),
-                { enableHighAccuracy: true, maximumAge: 1000 }
+                console.error,
+                { enableHighAccuracy: true }
             );
         }
 
         return () => {
-            if (watchId && navigator.geolocation) {
-                navigator.geolocation.clearWatch(watchId);
-            }
+            if (watchId) navigator.geolocation.clearWatch(watchId);
             map.remove();
         };
     }, [destination]);
