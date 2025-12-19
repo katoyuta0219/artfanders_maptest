@@ -18,7 +18,7 @@ type Props = {
 };
 
 // =============================
-// NavigationMap（完全ナビ版 + 3D建物）
+// NavigationMap（完全ナビ版）
 // =============================
 export default function NavigationMap({ destination }: Props) {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -30,7 +30,7 @@ export default function NavigationMap({ destination }: Props) {
         if (!mapContainerRef.current) return;
 
         // -----------------------------
-        // Map 初期化（3D対応）
+        // Map 初期化（★ antialias 追加）
         // -----------------------------
         const map = new mapboxgl.Map({
             container: mapContainerRef.current,
@@ -38,32 +38,29 @@ export default function NavigationMap({ destination }: Props) {
             center: [destination.lng, destination.lat],
             zoom: 15,
             pitch: 60,
-            antialias: true, // ★ 3D必須
+            antialias: true, // ★ 3D表示に必須
         });
 
         mapRef.current = map;
 
         // -----------------------------
-        // ★ 建物3D表示（ルートより下）
+        // ★ 建物を3D表示
         // -----------------------------
         map.on('load', () => {
-            map.addLayer(
-                {
-                    id: '3d-buildings',
-                    source: 'composite',
-                    'source-layer': 'building',
-                    filter: ['==', 'extrude', 'true'],
-                    type: 'fill-extrusion',
-                    minzoom: 15,
-                    paint: {
-                        'fill-extrusion-color': '#d1d5db',
-                        'fill-extrusion-height': ['get', 'height'],
-                        'fill-extrusion-base': ['get', 'min_height'],
-                        'fill-extrusion-opacity': 0.45, // ★ 透過してルートを見やすく
-                    },
+            map.addLayer({
+                id: '3d-buildings',
+                source: 'composite',
+                'source-layer': 'building',
+                filter: ['==', 'extrude', 'true'],
+                type: 'fill-extrusion',
+                minzoom: 15,
+                paint: {
+                    'fill-extrusion-color': '#d1d5db',
+                    'fill-extrusion-height': ['get', 'height'],
+                    'fill-extrusion-base': ['get', 'min_height'],
+                    'fill-extrusion-opacity': 0.6,
                 },
-                'road-label' // ★ 道路・ルートより下に配置
-            );
+            });
         });
 
         // -----------------------------
@@ -94,15 +91,14 @@ export default function NavigationMap({ destination }: Props) {
                     lastPositionRef.current = { lat, lng };
 
                     // =============================
-                    // 現在地矢印
+                    // 矢印マーカー（現在地）
                     // =============================
                     if (!userMarkerRef.current) {
                         const el = document.createElement('div');
                         el.style.width = '24px';
                         el.style.height = '24px';
                         el.style.background = '#2563eb';
-                        el.style.clipPath =
-                            'polygon(50% 0%, 100% 100%, 50% 80%, 0% 100%)';
+                        el.style.clipPath = 'polygon(50% 0%, 100% 100%, 50% 80%, 0% 100%)';
                         el.style.transform = `rotate(${bearing}deg)`;
 
                         userMarkerRef.current = new mapboxgl.Marker(el)
@@ -126,11 +122,11 @@ export default function NavigationMap({ destination }: Props) {
                     });
 
                     // =============================
-                    // ルート取得（道路沿い）
+                    // ルート取得（初回のみ）
                     // =============================
                     if (!map.getSource('route')) {
                         const res = await fetch(
-                            `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${destination.lng},${destination.lat}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`
+                            `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${destination.lng},${destination.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`
                         );
                         const data = await res.json();
 
