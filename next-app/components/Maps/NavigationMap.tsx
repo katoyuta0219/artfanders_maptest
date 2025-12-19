@@ -9,11 +9,6 @@ mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 // =============================
 // 型定義
 // =============================
-type LatLng = {
-    lat: number;
-    lng: number;
-};
-
 type Props = {
     destination: {
         lat: number;
@@ -23,12 +18,12 @@ type Props = {
 };
 
 // =============================
-// NavigationMap
+// NavigationMap（道沿いルート + 矢印ナビ）
 // =============================
 export default function NavigationMap({ destination }: Props) {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
-    const markerRef = useRef<mapboxgl.Marker | null>(null);
+    const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
     useEffect(() => {
         if (!mapContainerRef.current) return;
@@ -38,9 +33,10 @@ export default function NavigationMap({ destination }: Props) {
         // -----------------------------
         const map = new mapboxgl.Map({
             container: mapContainerRef.current,
-            style: 'mapbox://styles/mapbox/streets-v12',
+            style: 'mapbox://styles/mapbox/navigation-day-v1', // ナビ向けスタイル
             center: [destination.lng, destination.lat],
             zoom: 15,
+            pitch: 60,
         });
 
         mapRef.current = map;
@@ -53,46 +49,65 @@ export default function NavigationMap({ destination }: Props) {
             .setPopup(new mapboxgl.Popup().setText(destination.name))
             .addTo(map);
 
-        // -----------------------------
-        // 現在地追跡
-        // -----------------------------
         let watchId: number;
 
+        // -----------------------------
+        // 現在地トラッキング
+        // -----------------------------
         if (navigator.geolocation) {
             watchId = navigator.geolocation.watchPosition(
                 async (pos) => {
-                    const origin: LatLng = {
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude,
-                    };
+                    const originLngLat: [number, number] = [
+                        pos.coords.longitude,
+                        pos.coords.latitude,
+                    ];
 
-                    // 現在地マーカー（青）
-                    if (!markerRef.current) {
-                        markerRef.current = new mapboxgl.Marker({ color: 'blue' })
-                            .setLngLat([origin.lng, origin.lat])
+                    // =============================
+                    // 現在地「矢印」マーカー
+                    // =============================
+                    if (!userMarkerRef.current) {
+                        const el = document.createElement('div');
+                        el.style.width = '24px';
+                        el.style.height = '24px';
+                        el.style.background = '#2563eb';
+                        el.style.clipPath = 'polygon(50% 0%, 0% 100%, 100% 100%)';
+                        el.style.transform = 'rotate(0deg)';
+
+                        userMarkerRef.current = new mapboxgl.Marker({
+                            element: el,
+                            rotationAlignment: 'map',
+                        })
+                            .setLngLat(originLngLat)
                             .addTo(map);
                     } else {
-                        markerRef.current.setLngLat([origin.lng, origin.lat]);
+                        userMarkerRef.current.setLngLat(originLngLat);
                     }
 
+                    // 進行方向に回転
+                    if (pos.coords.heading != null && userMarkerRef.current) {
+                        userMarkerRef.current.getElement().style.transform = `rotate(${pos.coords.heading}deg)`;
+                    }
+
+                    // =============================
                     // カメラ追従（GoogleMap風）
+                    // =============================
                     map.easeTo({
-                        center: [origin.lng, origin.lat],
+                        center: originLngLat,
+                        bearing: pos.coords.heading ?? map.getBearing(),
                         zoom: 16,
-                        bearing: pos.coords.heading ?? 0,
                         pitch: 60,
                         duration: 500,
                     });
 
-                    // -----------------------------
-                    // ルート取得（Directions API）
-                    // -----------------------------
+                    // =============================
+                    // Directions API（道沿いルート）
+                    // =============================
                     const res = await fetch(
-                        `https://api.mapbox.com/directions/v5/mapbox/walking/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`
+                        `https://api.mapbox.com/directions/v5/mapbox/walking/${originLngLat[0]},${originLngLat[1]};${destination.lng},${destination.lat}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`
                     );
 
-                    const data = await res.json();
-                    const geometry = data.routes[0].geometry;
+                    const json = await res.json();
+                    const geometry = json.routes[0].geometry;
 
                     const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
                         type: 'Feature',
@@ -117,15 +132,14 @@ export default function NavigationMap({ destination }: Props) {
                                 'line-cap': 'round',
                             },
                             paint: {
+                                'line-color': '#2563eb',
                                 'line-width': 6,
-                                'line-opacity': 0.8,
+                                'line-opacity': 0.9,
                             },
                         });
                     }
                 },
-                (err) => {
-                    console.error('位置情報エラー', err);
-                },
+                (err) => console.error('位置情報エラー', err),
                 {
                     enableHighAccuracy: true,
                     maximumAge: 1000,
