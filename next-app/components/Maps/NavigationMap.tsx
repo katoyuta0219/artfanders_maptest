@@ -9,6 +9,11 @@ mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 // =============================
 // 型定義
 // =============================
+type LatLng = {
+    lat: number;
+    lng: number;
+};
+
 type Props = {
     destination: {
         lat: number;
@@ -18,50 +23,27 @@ type Props = {
 };
 
 // =============================
-// NavigationMap（完全ナビ版）
+// NavigationMap
 // =============================
 export default function NavigationMap({ destination }: Props) {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
-    const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
-    const lastPositionRef = useRef<{ lat: number; lng: number } | null>(null);
+    const markerRef = useRef<mapboxgl.Marker | null>(null);
 
     useEffect(() => {
         if (!mapContainerRef.current) return;
 
         // -----------------------------
-        // Map 初期化（★ antialias 追加）
+        // Map 初期化
         // -----------------------------
         const map = new mapboxgl.Map({
             container: mapContainerRef.current,
-            style: 'mapbox://styles/mapbox/navigation-day-v1',
+            style: 'mapbox://styles/mapbox/streets-v12',
             center: [destination.lng, destination.lat],
             zoom: 15,
-            pitch: 60,
-            antialias: true, // ★ 3D表示に必須
         });
 
         mapRef.current = map;
-
-        // -----------------------------
-        // ★ 建物を3D表示
-        // -----------------------------
-        map.on('load', () => {
-            map.addLayer({
-                id: '3d-buildings',
-                source: 'composite',
-                'source-layer': 'building',
-                filter: ['==', 'extrude', 'true'],
-                type: 'fill-extrusion',
-                minzoom: 15,
-                paint: {
-                    'fill-extrusion-color': '#d1d5db',
-                    'fill-extrusion-height': ['get', 'height'],
-                    'fill-extrusion-base': ['get', 'min_height'],
-                    'fill-extrusion-opacity': 0.6,
-                },
-            });
-        });
 
         // -----------------------------
         // 目的地マーカー
@@ -71,71 +53,56 @@ export default function NavigationMap({ destination }: Props) {
             .setPopup(new mapboxgl.Popup().setText(destination.name))
             .addTo(map);
 
+        // -----------------------------
+        // 現在地追跡
+        // -----------------------------
         let watchId: number;
 
         if (navigator.geolocation) {
             watchId = navigator.geolocation.watchPosition(
                 async (pos) => {
-                    const lat = pos.coords.latitude;
-                    const lng = pos.coords.longitude;
+                    const origin: LatLng = {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                    };
 
-                    // =============================
-                    // 進行方向計算
-                    // =============================
-                    let bearing = pos.coords.heading ?? 0;
-                    if (bearing === 0 && lastPositionRef.current) {
-                        const dx = lng - lastPositionRef.current.lng;
-                        const dy = lat - lastPositionRef.current.lat;
-                        bearing = (Math.atan2(dx, dy) * 180) / Math.PI;
-                    }
-                    lastPositionRef.current = { lat, lng };
-
-                    // =============================
-                    // 矢印マーカー（現在地）
-                    // =============================
-                    if (!userMarkerRef.current) {
-                        const el = document.createElement('div');
-                        el.style.width = '24px';
-                        el.style.height = '24px';
-                        el.style.background = '#2563eb';
-                        el.style.clipPath = 'polygon(50% 0%, 100% 100%, 50% 80%, 0% 100%)';
-                        el.style.transform = `rotate(${bearing}deg)`;
-
-                        userMarkerRef.current = new mapboxgl.Marker(el)
-                            .setLngLat([lng, lat])
+                    // 現在地マーカー（青）
+                    if (!markerRef.current) {
+                        markerRef.current = new mapboxgl.Marker({ color: 'blue' })
+                            .setLngLat([origin.lng, origin.lat])
                             .addTo(map);
                     } else {
-                        const el = userMarkerRef.current.getElement();
-                        el.style.transform = `rotate(${bearing}deg)`;
-                        userMarkerRef.current.setLngLat([lng, lat]);
+                        markerRef.current.setLngLat([origin.lng, origin.lat]);
                     }
 
-                    // =============================
-                    // カメラ追従
-                    // =============================
+                    // カメラ追従（GoogleMap風）
                     map.easeTo({
-                        center: [lng, lat],
-                        bearing,
+                        center: [origin.lng, origin.lat],
                         zoom: 16,
+                        bearing: pos.coords.heading ?? 0,
                         pitch: 60,
                         duration: 500,
                     });
 
-                    // =============================
-                    // ルート取得（初回のみ）
-                    // =============================
-                    if (!map.getSource('route')) {
-                        const res = await fetch(
-                            `https://api.mapbox.com/directions/v5/mapbox/walking/${lng},${lat};${destination.lng},${destination.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`
-                        );
-                        const data = await res.json();
+                    // -----------------------------
+                    // ルート取得（Directions API）
+                    // -----------------------------
+                    const res = await fetch(
+                        `https://api.mapbox.com/directions/v5/mapbox/walking/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`
+                    );
 
-                        const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
-                            type: 'Feature',
-                            geometry: data.routes[0].geometry,
-                            properties: {},
-                        };
+                    const data = await res.json();
+                    const geometry = data.routes[0].geometry;
 
+                    const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
+                        type: 'Feature',
+                        geometry,
+                        properties: {},
+                    };
+
+                    if (map.getSource('route')) {
+                        (map.getSource('route') as mapboxgl.GeoJSONSource).setData(routeGeoJson);
+                    } else {
                         map.addSource('route', {
                             type: 'geojson',
                             data: routeGeoJson,
@@ -150,14 +117,19 @@ export default function NavigationMap({ destination }: Props) {
                                 'line-cap': 'round',
                             },
                             paint: {
-                                'line-color': '#2563eb',
                                 'line-width': 6,
+                                'line-opacity': 0.8,
                             },
                         });
                     }
                 },
-                (err) => console.error('位置情報エラー', err),
-                { enableHighAccuracy: true, maximumAge: 1000 }
+                (err) => {
+                    console.error('位置情報エラー', err);
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 1000,
+                }
             );
         }
 
