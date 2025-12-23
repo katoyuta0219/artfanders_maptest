@@ -1,6 +1,5 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
 import SimpleMap from "../../components/Maps/SimpleMap";
 import { useEffect, useState } from "react";
 
@@ -12,16 +11,13 @@ const KOBE_BOUNDS = {
 };
 
 export default function MapPage() {
-    const params = useSearchParams();
+    // 🎯 目的地（URLクエリから取得）
+    const [destination, setDestination] = useState({
+        lat: 34.6913, // デフォルト：三宮
+        lng: 135.1955,
+    });
 
-    const latString = params.get("lat");
-    const lngString = params.get("lng");
-
-    const destination = {
-        lat: latString ? parseFloat(latString) : 34.6913, // 三宮あたり
-        lng: lngString ? parseFloat(lngString) : 135.1955,
-    };
-
+    // 🎯 出発地（現在地）
     const [origin, setOrigin] = useState<{
         lat: number | null;
         lng: number | null;
@@ -29,8 +25,27 @@ export default function MapPage() {
 
     const [isInKobe, setIsInKobe] = useState<boolean | null>(null);
 
-    const USE_MOCK_LOCATION = true; // ← false にすると実GPS
+    const USE_MOCK_LOCATION = true; // false にすると実GPS
 
+    // =========================
+    // ✅ URLクエリ取得（useSearchParams 不使用）
+    // =========================
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const lat = params.get("lat");
+        const lng = params.get("lng");
+
+        if (lat && lng) {
+            setDestination({
+                lat: parseFloat(lat),
+                lng: parseFloat(lng),
+            });
+        }
+    }, []);
+
+    // =========================
+    // ✅ 現在地取得
+    // =========================
     useEffect(() => {
         if (!USE_MOCK_LOCATION && navigator.geolocation) {
             navigator.geolocation.getCurrentPosition((pos) => {
@@ -57,7 +72,9 @@ export default function MapPage() {
         }
     }, []);
 
-    // ✅ 位置情報取得中
+    // =========================
+    // 表示制御
+    // =========================
     if (isInKobe === null) {
         return (
             <div style={{ padding: 40, textAlign: "center" }}>
@@ -66,7 +83,6 @@ export default function MapPage() {
         );
     }
 
-    // ✅ 神戸市外ならブロック
     if (!isInKobe) {
         return (
             <div
@@ -77,13 +93,13 @@ export default function MapPage() {
                     fontSize: 20,
                 }}
             >
-                ⚠️ このアプリは神戸市内専用です。<br />
+                ⚠️ このアプリは神戸市内専用です。
+                <br />
                 現在地が神戸市外のため、地図は表示できません。
             </div>
         );
     }
 
-    // ✅ 神戸市内のみ地図表示
     return (
         <div style={{ width: "100%", height: "100vh" }}>
             <SimpleMap
