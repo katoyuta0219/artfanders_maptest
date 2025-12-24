@@ -7,8 +7,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 
-export default function NavigationMapPage() {
-    const mapContainerRef = useRef<HTMLDivElement | null>(null);
+export default function MapPage() {
+    const mapContainer = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
 
     const params = useSearchParams();
@@ -16,102 +16,70 @@ export default function NavigationMapPage() {
     const destLng = Number(params.get('lng'));
 
     useEffect(() => {
-        if (!mapContainerRef.current) return;
+        if (!mapContainer.current || mapRef.current) return;
 
-        const map = new mapboxgl.Map({
-            container: mapContainerRef.current,
-            style: 'mapbox://styles/mapbox/streets-v12',
-            zoom: 14,
-        });
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+            const currentLat = pos.coords.latitude;
+            const currentLng = pos.coords.longitude;
 
-        mapRef.current = map;
-        map.addControl(new mapboxgl.NavigationControl());
+            const map = new mapboxgl.Map({
+                container: mapContainer.current!,
+                style: 'mapbox://styles/mapbox/streets-v12',
+                center: [currentLng, currentLat],
+                zoom: 14,
+            });
 
-        map.once('load', () => {
-            navigator.geolocation.getCurrentPosition(
-                async (pos) => {
-                    const start: [number, number] = [
-                        pos.coords.longitude,
-                        pos.coords.latitude,
-                    ];
-                    const goal: [number, number] = [destLng, destLat];
+            mapRef.current = map;
 
-                    // 現在地マーカー
-                    new mapboxgl.Marker({ color: 'blue' })
-                        .setLngLat(start)
-                        .addTo(map);
+            // 現在地マーカー
+            new mapboxgl.Marker({ color: 'blue' })
+                .setLngLat([currentLng, currentLat])
+                .addTo(map);
 
-                    // 目的地マーカー
-                    new mapboxgl.Marker({ color: 'red' })
-                        .setLngLat(goal)
-                        .addTo(map);
+            // 目的地マーカー
+            new mapboxgl.Marker({ color: 'red' })
+                .setLngLat([destLng, destLat])
+                .addTo(map);
 
-                    // ✅ Directions API（徒歩・道路厳守）
-                    const res = await fetch(
-                        `https://api.mapbox.com/directions/v5/mapbox/walking/` +
-                        `${start[0]},${start[1]};${goal[0]},${goal[1]}` +
-                        `?geometries=geojson&overview=full&steps=true&access_token=${mapboxgl.accessToken}`
-                    );
+            map.on('load', async () => {
+                // 🚶 徒歩ルート（道路を使う）
+                const res = await fetch(
+                    `https://api.mapbox.com/directions/v5/mapbox/walking/${currentLng},${currentLat};${destLng},${destLat}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`
+                );
 
-                    const json = await res.json();
-                    const routeGeometry = json.routes[0].geometry;
+                const data = await res.json();
+                const route = data.routes[0].geometry;
 
-                    // ルート描画
-                    map.addSource('route', {
-                        type: 'geojson',
-                        data: {
-                            type: 'Feature',
-                            properties: {},
-                            geometry: routeGeometry,
-                        },
-                    });
+                map.addSource('route', {
+                    type: 'geojson',
+                    data: {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: route,
+                    },
+                });
 
-                    map.addLayer({
-                        id: 'route-line',
-                        type: 'line',
-                        source: 'route',
-
-                        // ✅ TypeScript的に正しい位置
-                        layout: {
-                            'line-cap': 'round',
-                            'line-join': 'round',
-                        },
-
-                        paint: {
-                            'line-color': '#2563eb',
-                            'line-width': 6,
-                        },
-                    });
-
-                    // ルート全体が見えるように
-                    const bounds = routeGeometry.coordinates.reduce(
-                        (b: mapboxgl.LngLatBounds, coord: number[]) =>
-                            b.extend(coord as [number, number]),
-                        new mapboxgl.LngLatBounds(
-                            routeGeometry.coordinates[0],
-                            routeGeometry.coordinates[0]
-                        )
-                    );
-
-                    map.fitBounds(bounds, { padding: 80 });
-                },
-                (err) => {
-                    console.error(err);
-                    alert('位置情報を取得できません');
-                },
-                { enableHighAccuracy: true }
-            );
+                map.addLayer({
+                    id: 'route-line',
+                    type: 'line',
+                    source: 'route',
+                    layout: {
+                        'line-join': 'round',
+                        'line-cap': 'round',
+                    },
+                    paint: {
+                        'line-color': '#2563eb',
+                        'line-width': 6,
+                    },
+                });
+            });
         });
 
         return () => {
-            map.remove();
+            mapRef.current?.remove();
+            mapRef.current = null;
         };
     }, [destLat, destLng]);
 
-    return (
-        <div
-            ref={mapContainerRef}
-            style={{ width: '100vw', height: '100vh' }}
-        />
-    );
+    return <div ref={mapContainer} style={{ width: '100%', height: '100vh' }} />;
 }
