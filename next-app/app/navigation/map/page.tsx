@@ -8,8 +8,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 
 export default function NavigationMapPage() {
-    const mapRef = useRef<mapboxgl.Map | null>(null);
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
+    const mapRef = useRef<mapboxgl.Map | null>(null);
 
     const params = useSearchParams();
     const destLat = Number(params.get('lat'));
@@ -21,52 +21,48 @@ export default function NavigationMapPage() {
         const map = new mapboxgl.Map({
             container: mapContainerRef.current,
             style: 'mapbox://styles/mapbox/streets-v12',
-            center: [destLng, destLat],
             zoom: 14,
         });
 
         mapRef.current = map;
-
         map.addControl(new mapboxgl.NavigationControl());
 
-        // 現在地取得
-        navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-                const start = {
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                };
+        map.once('load', () => {
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    const start: [number, number] = [
+                        pos.coords.longitude,
+                        pos.coords.latitude,
+                    ];
+                    const goal: [number, number] = [destLng, destLat];
 
-                // 現在地マーカー
-                new mapboxgl.Marker({ color: 'blue' })
-                    .setLngLat([start.lng, start.lat])
-                    .addTo(map);
+                    // 現在地マーカー
+                    new mapboxgl.Marker({ color: 'blue' })
+                        .setLngLat(start)
+                        .addTo(map);
 
-                // 目的地マーカー
-                new mapboxgl.Marker({ color: 'red' })
-                    .setLngLat([destLng, destLat])
-                    .addTo(map);
+                    // 目的地マーカー
+                    new mapboxgl.Marker({ color: 'red' })
+                        .setLngLat(goal)
+                        .addTo(map);
 
-                // Directions API（徒歩）
-                const res = await fetch(
-                    `https://api.mapbox.com/directions/v5/mapbox/walking/` +
-                    `${start.lng},${start.lat};${destLng},${destLat}` +
-                    `?geometries=geojson&access_token=${mapboxgl.accessToken}`
-                );
+                    // ✅ Directions API（徒歩・道路厳守）
+                    const res = await fetch(
+                        `https://api.mapbox.com/directions/v5/mapbox/walking/` +
+                        `${start[0]},${start[1]};${goal[0]},${goal[1]}` +
+                        `?geometries=geojson&overview=full&steps=true&access_token=${mapboxgl.accessToken}`
+                    );
 
-                const data = await res.json();
-                const routeCoords = data.routes[0].geometry.coordinates;
+                    const json = await res.json();
+                    const routeGeometry = json.routes[0].geometry;
 
-                map.on('load', () => {
+                    // ルート描画
                     map.addSource('route', {
                         type: 'geojson',
                         data: {
                             type: 'Feature',
                             properties: {},
-                            geometry: {
-                                type: 'LineString',
-                                coordinates: routeCoords,
-                            },
+                            geometry: routeGeometry,
                         },
                     });
 
@@ -74,31 +70,38 @@ export default function NavigationMapPage() {
                         id: 'route-line',
                         type: 'line',
                         source: 'route',
+
+                        // ✅ TypeScript的に正しい位置
+                        layout: {
+                            'line-cap': 'round',
+                            'line-join': 'round',
+                        },
+
                         paint: {
-                            'line-color': '#1d4ed8',
+                            'line-color': '#2563eb',
                             'line-width': 6,
                         },
                     });
 
                     // ルート全体が見えるように
-                    const bounds = routeCoords.reduce(
+                    const bounds = routeGeometry.coordinates.reduce(
                         (b: mapboxgl.LngLatBounds, coord: number[]) =>
                             b.extend(coord as [number, number]),
                         new mapboxgl.LngLatBounds(
-                            routeCoords[0] as [number, number],
-                            routeCoords[0] as [number, number]
+                            routeGeometry.coordinates[0],
+                            routeGeometry.coordinates[0]
                         )
                     );
 
-                    map.fitBounds(bounds, { padding: 60 });
-                });
-            },
-            (err) => {
-                alert('位置情報を取得できません');
-                console.error(err);
-            },
-            { enableHighAccuracy: true }
-        );
+                    map.fitBounds(bounds, { padding: 80 });
+                },
+                (err) => {
+                    console.error(err);
+                    alert('位置情報を取得できません');
+                },
+                { enableHighAccuracy: true }
+            );
+        });
 
         return () => {
             map.remove();
