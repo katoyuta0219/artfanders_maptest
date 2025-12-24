@@ -11,7 +11,7 @@ export default function Page({ searchParams }: Props) {
   const destLat = Number(searchParams.lat);
   const destLng = Number(searchParams.lng);
 
-  if (Number.isNaN(destLat) || Number.isNaN(destLng)) {
+  if (!searchParams.lat || !searchParams.lng) {
     return <div>目的地が指定されていません</div>;
   }
 
