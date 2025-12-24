@@ -19,13 +19,11 @@ export default function Page() {
       {places.map((p) => (
         <button
           key={p.name}
-          onClick={() =>
+          onClick={() => {
             router.push(
-              `/navigation/map?lat=${p.lat}&lng=${p.lng}&name=${encodeURIComponent(
-                p.name
-              )}`
-            )
-          }
+              `/navigation/map?lat=${p.lat}&lng=${p.lng}`
+            );
+          }}
           style={{
             display: 'block',
             margin: '12px 0',
