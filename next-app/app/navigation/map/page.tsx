@@ -1,5 +1,11 @@
 'use client';
 
+/**
+ * 🔴 これが超重要（build failure の原因）
+ */
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import mapboxgl from 'mapbox-gl';
@@ -17,6 +23,7 @@ export default function MapPage() {
 
     useEffect(() => {
         if (!mapContainer.current || mapRef.current) return;
+        if (Number.isNaN(destLat) || Number.isNaN(destLng)) return;
 
         navigator.geolocation.getCurrentPosition(async (pos) => {
             const currentLat = pos.coords.latitude;
@@ -31,24 +38,24 @@ export default function MapPage() {
 
             mapRef.current = map;
 
-            // 現在地マーカー
+            // 現在地
             new mapboxgl.Marker({ color: 'blue' })
                 .setLngLat([currentLng, currentLat])
                 .addTo(map);
 
-            // 目的地マーカー
+            // 目的地
             new mapboxgl.Marker({ color: 'red' })
                 .setLngLat([destLng, destLat])
                 .addTo(map);
 
             map.on('load', async () => {
-                // 🚶 徒歩ルート（道路を使う）
                 const res = await fetch(
                     `https://api.mapbox.com/directions/v5/mapbox/walking/${currentLng},${currentLat};${destLng},${destLat}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`
                 );
 
                 const data = await res.json();
-                const route = data.routes[0].geometry;
+                const route = data.routes[0]?.geometry;
+                if (!route) return;
 
                 map.addSource('route', {
                     type: 'geojson',
