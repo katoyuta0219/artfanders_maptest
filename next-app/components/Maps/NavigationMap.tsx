@@ -18,7 +18,7 @@ type Props = {
 };
 
 // =============================
-// NavigationMap（3D + 影付き完全ナビ版）
+// NavigationMap（3D + 影 + 徒歩ナビ 完全版）
 // =============================
 export default function NavigationMap({ destination }: Props) {
     const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -30,13 +30,13 @@ export default function NavigationMap({ destination }: Props) {
         if (!mapContainerRef.current) return;
 
         // -----------------------------
-        // Map 初期化（3D・影対応）
+        // Map 初期化（3D前提スタイル）
         // -----------------------------
         const map = new mapboxgl.Map({
             container: mapContainerRef.current,
-            style: 'mapbox://styles/mapbox/navigation-day-v1',
+            style: 'mapbox://styles/mapbox/streets-v12', // ← 重要
             center: [destination.lng, destination.lat],
-            zoom: 15,
+            zoom: 16,
             pitch: 60,
             bearing: -20,
             antialias: true,
@@ -45,18 +45,23 @@ export default function NavigationMap({ destination }: Props) {
         mapRef.current = map;
 
         // -----------------------------
-        // マップ読み込み完了時
+        // マップロード完了
         // -----------------------------
         map.on('load', () => {
-            // 🌤 光源（影を作る）
+            // 🌤 光源（影）
             map.setLight({
                 anchor: 'map',
                 position: [1.5, 90, 80],
-                color: '#ffffff',
                 intensity: 0.6,
             });
 
-            // 🏙 3D建物レイヤー（影付き）
+            // 🏷 ラベルレイヤー取得（確実に addLayer するため）
+            const layers = map.getStyle().layers;
+            const labelLayerId = layers?.find(
+                (layer) => layer.type === 'symbol' && layer.layout?.['text-field']
+            )?.id;
+
+            // 🏙 3D建物
             map.addLayer(
                 {
                     id: '3d-buildings',
@@ -70,13 +75,11 @@ export default function NavigationMap({ destination }: Props) {
                         'fill-extrusion-height': ['get', 'height'],
                         'fill-extrusion-base': ['get', 'min_height'],
                         'fill-extrusion-opacity': 0.95,
-
-                        // ⭐ 影・立体感
                         'fill-extrusion-ambient-occlusion-intensity': 0.6,
                         'fill-extrusion-ambient-occlusion-radius': 3,
                     },
                 },
-                'road-label'
+                labelLayerId
             );
         });
 
@@ -132,18 +135,18 @@ export default function NavigationMap({ destination }: Props) {
                     }
 
                     // =============================
-                    // カメラ追従（ナビ感）
+                    // カメラ追従
                     // =============================
                     map.easeTo({
                         center: [lng, lat],
                         bearing,
-                        zoom: 16,
+                        zoom: 17,
                         pitch: 65,
                         duration: 500,
                     });
 
                     // =============================
-                    // 徒歩ルート（初回のみ）
+                    // 徒歩ルート（最短・道路沿い）
                     // =============================
                     if (!map.getSource('route')) {
                         const res = await fetch(
@@ -194,10 +197,5 @@ export default function NavigationMap({ destination }: Props) {
         };
     }, [destination]);
 
-    return (
-        <div
-            ref={mapContainerRef}
-            style={{ width: '100%', height: '100vh' }}
-        />
-    );
+    return <div ref={mapContainerRef} style={{ width: '100%', height: '100vh' }} />;
 }
