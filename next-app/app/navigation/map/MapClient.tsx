@@ -1,70 +1,67 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-// ✅ env 名を完全一致させる
-mapboxgl.accessToken =
-    process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
+mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 
-type Props = {
-    destLat: number;
-    destLng: number;
-};
+export default function MapClient() {
+  const mapContainer = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
 
-export default function MapClient({ destLat, destLng }: Props) {
-    const mapContainerRef = useRef<HTMLDivElement | null>(null);
-    const mapRef = useRef<mapboxgl.Map | null>(null);
+  const [dest, setDest] = useState<{ lat: number; lng: number } | null>(null);
 
-    useEffect(() => {
-        if (!mapContainerRef.current || mapRef.current) return;
+  // ✅ URL クエリ取得（確実に動く）
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const lat = params.get('lat');
+    const lng = params.get('lng');
 
-        if (!navigator.geolocation) {
-            alert('このブラウザは位置情報に対応していません');
-            return;
-        }
+    if (!lat || !lng) return;
 
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                const currentLat = pos.coords.latitude;
-                const currentLng = pos.coords.longitude;
+    const destLat = Number(lat);
+    const destLng = Number(lng);
 
-                const map = new mapboxgl.Map({
-                    container: mapContainerRef.current!,
-                    style: 'mapbox://styles/mapbox/streets-v12',
-                    center: [currentLng, currentLat],
-                    zoom: 14,
-                });
+    if (Number.isNaN(destLat) || Number.isNaN(destLng)) return;
 
-                mapRef.current = map;
+    setDest({ lat: destLat, lng: destLng });
+  }, []);
 
-                // 現在地マーカー
-                new mapboxgl.Marker({ color: 'blue' })
-                    .setLngLat([currentLng, currentLat])
-                    .addTo(map);
+  useEffect(() => {
+    if (!mapContainer.current || mapRef.current || !dest) return;
 
-                // 目的地マーカー
-                new mapboxgl.Marker({ color: 'red' })
-                    .setLngLat([destLng, destLat])
-                    .addTo(map);
-            },
-            (err) => {
-                console.error('位置情報取得エラー', err);
-                alert('位置情報を取得できませんでした');
-            }
-        );
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const currentLat = pos.coords.latitude;
+      const currentLng = pos.coords.longitude;
 
-        return () => {
-            mapRef.current?.remove();
-            mapRef.current = null;
-        };
-    }, [destLat, destLng]);
+      const map = new mapboxgl.Map({
+        container: mapContainer.current!,
+        style: 'mapbox://styles/mapbox/streets-v12',
+        center: [currentLng, currentLat],
+        zoom: 14,
+      });
 
-    return (
-        <div
-            ref={mapContainerRef}
-            style={{ width: '100%', height: '100vh' }}
-        />
-    );
+      mapRef.current = map;
+
+      new mapboxgl.Marker({ color: 'blue' })
+        .setLngLat([currentLng, currentLat])
+        .addTo(map);
+
+      new mapboxgl.Marker({ color: 'red' })
+        .setLngLat([dest.lng, dest.lat])
+        .addTo(map);
+    });
+
+    return () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, [dest]);
+
+  if (!dest) {
+    return <div style={{ padding: 20 }}>目的地を読み込んでいます...</div>;
+  }
+
+  return <div ref={mapContainer} style={{ width: '100%', height: '100vh' }} />;
 }
