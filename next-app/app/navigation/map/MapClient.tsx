@@ -1,37 +1,24 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN!;
 
-export default function MapClient() {
+type Props = {
+    destLat: number;
+    destLng: number;
+};
+
+export default function MapClient({ destLat, destLng }: Props) {
     const mapContainer = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
 
-    const [dest, setDest] = useState<{ lat: number; lng: number } | null>(null);
-
-    // ✅ URL クエリ取得（確実に動く）
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const lat = params.get('lat');
-        const lng = params.get('lng');
+        if (!mapContainer.current || mapRef.current) return;
 
-        if (!lat || !lng) return;
-
-        const destLat = Number(lat);
-        const destLng = Number(lng);
-
-        if (Number.isNaN(destLat) || Number.isNaN(destLng)) return;
-
-        setDest({ lat: destLat, lng: destLng });
-    }, []);
-
-    useEffect(() => {
-        if (!mapContainer.current || mapRef.current || !dest) return;
-
-        navigator.geolocation.getCurrentPosition((pos) => {
+        navigator.geolocation.getCurrentPosition(async (pos) => {
             const currentLat = pos.coords.latitude;
             const currentLng = pos.coords.longitude;
 
@@ -44,24 +31,66 @@ export default function MapClient() {
 
             mapRef.current = map;
 
+            // 現在地マーカー
             new mapboxgl.Marker({ color: 'blue' })
                 .setLngLat([currentLng, currentLat])
                 .addTo(map);
 
+            // 目的地マーカー
             new mapboxgl.Marker({ color: 'red' })
-                .setLngLat([dest.lng, dest.lat])
+                .setLngLat([destLng, destLat])
                 .addTo(map);
+
+            map.on('load', async () => {
+                // 🚶 徒歩ルート（建物を突っ切らない）
+                const res = await fetch(
+                    `https://api.mapbox.com/directions/v5/mapbox/walking/${currentLng},${currentLat};${destLng},${destLat}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`
+                );
+
+                const data = await res.json();
+                const route = data.routes?.[0]?.geometry;
+
+                if (!route) return;
+
+                // ルート追加
+                map.addSource('route', {
+                    type: 'geojson',
+                    data: {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: route,
+                    },
+                });
+
+                map.addLayer({
+                    id: 'route-line',
+                    type: 'line',
+                    source: 'route',
+                    layout: {
+                        'line-join': 'round',
+                        'line-cap': 'round',
+                    },
+                    paint: {
+                        'line-color': '#2563eb',
+                        'line-width': 6,
+                    },
+                });
+
+                // 🧠 ルート全体が見えるように自動ズーム
+                const bounds = new mapboxgl.LngLatBounds();
+                route.coordinates.forEach((c: number[]) => {
+                    bounds.extend([c[0], c[1]]);
+                });
+
+                map.fitBounds(bounds, { padding: 60 });
+            });
         });
 
         return () => {
             mapRef.current?.remove();
             mapRef.current = null;
         };
-    }, [dest]);
-
-    if (!dest) {
-        return <div style={{ padding: 20 }}>目的地を読み込んでいます...</div>;
-    }
+    }, [destLat, destLng]);
 
     return <div ref={mapContainer} style={{ width: '100%', height: '100vh' }} />;
 }
