@@ -27,7 +27,7 @@ export default function NavigationMap({ lat, lng }: Props) {
 
       const map = new mapboxgl.Map({
         container: mapContainerRef.current!,
-        style: "mapbox://styles/mapbox/dark-v11",
+        style: "mapbox://styles/mapbox/streets-v12",
         center: [originLng, originLat],
         zoom: 15,
         pitch: 65,
