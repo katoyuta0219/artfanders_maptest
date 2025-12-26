@@ -7,14 +7,6 @@ import "mapbox-gl/dist/mapbox-gl.css";
 mapboxgl.accessToken =
     process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ?? "";
 
-// ----------------------------------------------
-// 神戸 表示境界（見た目用）
-// ----------------------------------------------
-const KOBE_SOFT_BOUNDS: [[number, number], [number, number]] = [
-    [134.95, 34.55],
-    [135.55, 34.85],
-];
-
 type Props = {
     lat: number;
     lng: number;
@@ -36,9 +28,7 @@ export default function NavigationMap({ lat, lng }: Props) {
         const map = new mapboxgl.Map({
             container: mapContainerRef.current,
             style: "mapbox://styles/mapbox/dark-v11",
-            bounds: KOBE_SOFT_BOUNDS,
-            fitBoundsOptions: { padding: 80 },
-            maxBounds: KOBE_SOFT_BOUNDS,
+            center: [lng, lat],
             zoom: 15,
             pitch: 65,
             bearing: -20,
@@ -49,9 +39,9 @@ export default function NavigationMap({ lat, lng }: Props) {
 
         map.addControl(new mapboxgl.NavigationControl(), "top-right");
 
-        map.on("load", async () => {
+        map.on("load", () => {
             /* ====================================================
-               ① Terrain（起伏）
+               ① Terrain（地形）
                ==================================================== */
             map.addSource("mapbox-dem", {
                 type: "raster-dem",
@@ -62,11 +52,11 @@ export default function NavigationMap({ lat, lng }: Props) {
 
             map.setTerrain({
                 source: "mapbox-dem",
-                exaggeration: 1.4,
+                exaggeration: 1.3,
             });
 
             /* ====================================================
-               ② Sky（ダークな空）
+               ② Sky（空）
                ==================================================== */
             map.addLayer({
                 id: "sky",
@@ -79,7 +69,7 @@ export default function NavigationMap({ lat, lng }: Props) {
             });
 
             /* ====================================================
-               ③ Light（立体感）
+               ③ Light（ライティング）
                ==================================================== */
             map.setLight({
                 anchor: "map",
@@ -93,10 +83,10 @@ export default function NavigationMap({ lat, lng }: Props) {
                ==================================================== */
             const layers = map.getStyle().layers ?? [];
             const labelLayerId = layers.find(
-                (l) =>
-                    l.type === "symbol" &&
-                    l.layout &&
-                    "text-field" in l.layout
+                (layer) =>
+                    layer.type === "symbol" &&
+                    layer.layout &&
+                    "text-field" in layer.layout
             )?.id;
 
             map.addLayer(
@@ -147,3 +137,4 @@ export default function NavigationMap({ lat, lng }: Props) {
         />
     );
 }
+
